@@ -1,27 +1,76 @@
-# auto_forward_bot.py
+from telegram.ext import Updater, MessageHandler, Filters, CommandHandler
+from telegram import ParseMode
+import logging
 
-from telegram import Update, Bot
-from telegram.ext import Updater, MessageHandler, Filters, CallbackContext
+# === Configuration ===
+TOKEN = "8059875822:AAFBJzNez7gTlIVqrMzQCpFybmoprmgNK1k"
+SOURCE_CHANNEL_ID = -1002286453219
+DEST_CHANNEL_ID = -1002106363303
 
-# BOT TOKEN
-BOT_TOKEN = "8059875822:AAFBJzNez7gTlIVqrMzQCpFybmoprmgNK1k"
+# === Filters ===
+filter_word = None
+replace_word = None
 
-# Chat IDs (aapko channel ID lena hoga)
-SOURCE_CHANNEL_ID = -1002286453219  # Replace with your source channel ID
-DEST_CHANNEL_ID = -1002106363303    # Replace with your destination channel ID
+# === Logging ===
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-def forward_message(update: Update, context: CallbackContext):
-    if update.channel_post:
-        context.bot.forward_message(
-            chat_id=DEST_CHANNEL_ID,
-            from_chat_id=SOURCE_CHANNEL_ID,
-            message_id=update.channel_post.message_id
-        )
 
-updater = Updater(token=BOT_TOKEN, use_context=True)
-dispatcher = updater.dispatcher
+# === /filter command ===
+def filter_command(update, context):
+    update.message.reply_text("Enter the word you want to filter:")
+    return 1
 
-dispatcher.add_handler(MessageHandler(Filters.chat(SOURCE_CHANNEL_ID), forward_message))
+def set_filter_word(update, context):
+    global filter_word
+    filter_word = update.message.text
+    update.message.reply_text(f"Word to filter: '{filter_word}'\nNow send the word to replace it with:")
+    return 2
 
-updater.start_polling()
-updater.idle()
+def set_replace_word(update, context):
+    global replace_word
+    replace_word = update.message.text
+    update.message.reply_text(f"Filter set!\n'{filter_word}' will be replaced with '{replace_word}'")
+    return -1
+
+
+# === Forwarding logic ===
+def forward_message(update, context):
+    if update.effective_chat.id == SOURCE_CHANNEL_ID and update.message.text:
+        msg = update.message.text
+        if filter_word and replace_word:
+            msg = msg.replace(filter_word, replace_word)
+        context.bot.send_message(chat_id=DEST_CHANNEL_ID, text=msg, parse_mode=ParseMode.HTML)
+
+
+# === Cancel command (optional) ===
+def cancel(update, context):
+    update.message.reply_text("Filter setup cancelled.")
+    return -1
+
+
+# === Main function ===
+def main():
+    from telegram.ext import ConversationHandler
+
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    # Conversation handler for /filter
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('filter', filter_command)],
+        states={
+            1: [MessageHandler(Filters.text & ~Filters.command, set_filter_word)],
+            2: [MessageHandler(Filters.text & ~Filters.command, set_replace_word)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
+
+    dp.add_handler(conv_handler)
+    dp.add_handler(MessageHandler(Filters.text & Filters.chat(SOURCE_CHANNEL_ID), forward_message))
+
+    updater.start_polling()
+    updater.idle()
+
+
+if __name__ == '__main__':
+    main()
